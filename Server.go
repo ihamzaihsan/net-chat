@@ -32,8 +32,7 @@ func StartTCPServer(port int) {
 	}
 	defer listener.Close()
 
-	localIP := GetIPv4()
-	fmt.Printf("Server is running at IP address: %s and port: %d\n", localIP, port)
+	fmt.Printf("Server is running at port: %d\n", port)
 
 	for {
 		connection, err := listener.Accept()
@@ -163,20 +162,6 @@ func SendChatHistory(client *Client) {
 		client.Connection.Write([]byte(message))
 	}
 }
-
-//retrieves the IPv4 address of the server
-func GetIPv4() net.IP {
-    conn, err := net.Dial("udp", "8.8.8.8:80")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-
-    localAddr := conn.LocalAddr().(*net.UDPAddr)
-
-    return localAddr.IP
-}
-
 
 //function checks if the given name is unique among the connected clients.
 func verifyName(name string) bool {
