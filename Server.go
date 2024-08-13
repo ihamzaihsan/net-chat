@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -25,7 +24,7 @@ type Client struct {
 }
 
 func StartTCPServer(port int) {
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		fmt.Printf("Error: Can't start the server on port %d: %v\n", port, err)
 		return
