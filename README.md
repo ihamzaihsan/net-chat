@@ -7,6 +7,7 @@ NetCat, nc system command, is a command-line utility that reads and writes data 
 
 ## Authors
 - Yousif Maidan(ymaidan)
+- hamza cheema(hcheema)
 
 ## Important notes
 1. Control connections quantity (Maximum 10 connections).    

@@ -13,11 +13,12 @@ import (
 const MAX_CONNECTIONS = 10
 
 var (
-	mutex       sync.Mutex
-	chatHistory []string
-	clients     []*Client
+	mutex       sync.Mutex //protect shared resourese like chat history
+	chatHistory []string //slice that store chat history
+	clients     []*Client //slice to store the connected client
 )
 
+//struct represents a connected client, with fields for the client's name and the connection
 type Client struct {
 	Name       string
 	Connection net.Conn
@@ -57,6 +58,15 @@ func StartTCPServer(port int) {
 		go HandleClient(client)
 	}
 }
+//HandleClient Function:
+//This function handles the client connection, including:
+//Printing a welcome message and prompting the client for a name.
+//Verifying that the chosen name is unique.
+//Notifying all other clients about the new client.
+//Sending the chat history to the new client.
+//Handling the client's messages, adding them to the chat history, and broadcasting them to all other clients.
+//Removing the client from the list of connected clients when the connection is closed.
+
 
 func HandleClient(client *Client) {
 	defer client.Connection.Close()
@@ -144,6 +154,7 @@ func HandleClient(client *Client) {
 	mutex.Unlock()
 }
 
+//sends the chat history to a specific client
 func SendChatHistory(client *Client) {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -153,6 +164,7 @@ func SendChatHistory(client *Client) {
 	}
 }
 
+//retrieves the IPv4 address of the server
 func GetIPv4() net.IP {
     conn, err := net.Dial("udp", "8.8.8.8:80")
     if err != nil {
@@ -165,6 +177,8 @@ func GetIPv4() net.IP {
     return localAddr.IP
 }
 
+
+//function checks if the given name is unique among the connected clients.
 func verifyName(name string) bool {
 	for _, client := range clients {
 		if client.Name == name {
