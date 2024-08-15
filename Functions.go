@@ -1,75 +1,63 @@
 package main
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
-	"net"
-	"os"
+	"strings"
 )
 
-func PrintLinuxLogo(connection net.Conn) {
-
-	file, err := os.Open("linuxLogo.txt")
-
-	if err != nil {
-		fmt.Printf("Error: Can't open linuxLogo.txt file\n")
-		return
+func parsePort(input string) (int, error) {
+	if input == "" {
+		return 0, errors.New("port must contain digits only")
 	}
-
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	
-	for scanner.Scan() {
-		connection.Write([]byte(scanner.Text() + "\n"))
+	port := 0
+	for _, digit := range input {
+		if digit < '0' || digit > '9' {
+			return 0, errors.New("port must contain digits only")
+		}
+		port = port*10 + int(digit-'0')
+		// Reject before the next multiplication, preventing integer overflow.
+		if port > 65535 {
+			return 0, errors.New("port must be between 1024 and 65535")
+		}
 	}
+	if port < 1024 {
+		return 0, errors.New("port must be between 1024 and 65535")
+	}
+	return port, nil
 }
 
-// check wheather this is a valid port or not
-func CheckPort(port int) bool {
-	if port < 1024 || port > 65535 {
-		fmt.Printf("Error: The port %v is unvalid", port)
-		os.Exit(0)
+func validName(name string) bool {
+	if name == "" || len(name) > 64 || strings.ContainsAny(name, "[]:") {
+		return false
+	}
+	for _, character := range name {
+		if character < 32 || character == 127 {
+			return false
+		}
 	}
 	return true
 }
 
-// strconv package is not allowed!
-//ASCII to Integer
-func Atoi(s string) int {
-	value := 0
-	sign := 1
-	for index, ch := range s {
-		if ch == '-' && index == 0 {
-			sign = -1
-			continue
-		} else if ch == '+' && index == 0 {
-			sign = 1
-			continue
-		} else if !(ch >= '0' && ch <= '9') {
-			return 0
-		}
-		//Otherwise,updates value by multiplying by 10 and adding the numeric value of the current character (int(ch-'0'))
-		value = value*10 + int(ch-'0')
-	}
-	 return value * sign
+func prompt(name string) string {
+	return fmt.Sprintf("[%s][%s]: ", timestamp(), name)
 }
-//Integer to ASCII
-func Itoa(num int) string {
-	if num == 0 {
-		return "0"
-	}
 
-	sign := ""
-	if num < 0 {
-		sign = "-"
-		num = -num
-	}
-
-	result := ""
-	for num > 0 {
-		result = string('0'+(num%10)) + result
-		num /= 10
-	}
-	return sign + result
-}
+// Keeping the banner in the binary makes it independent of the working directory.
+const welcomeBanner = "Welcome to NetChat!\n" + `         _nnnn_
+        dGGGGMMb
+       @p~qp~~qMb
+       M|@||@) M|
+       @,----.JM|
+      JS^\__/  qKL
+     dZP        qKRb
+    dZP          qKKb
+   fZP            SMMb
+   HZM            MMMM
+   FqM            MMMM
+ __| ".        |\dS"qML
+ |    ` + "`" + `.       | ` + "`" + `' \Zq
+_)      \.___.,|     .'
+\____   )MMMMMP|   .'
+     ` + "`" + `-'       ` + "`" + `--'
+`

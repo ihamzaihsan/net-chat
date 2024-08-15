@@ -3,171 +3,194 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 )
 
-const MAX_CONNECTIONS = 10
-
-var (
-	mutex       sync.Mutex //protect shared resourese like chat history
-	chatHistory []string //slice that store chat history
-	clients     []*Client //slice to store the connected client
+const (
+	maxConnections = 10
+	maxLineBytes   = 4096
+	queueSize      = 64
+	writeTimeout   = 5 * time.Second
+	nameTimeout    = 30 * time.Second
 )
 
-//struct represents a connected client, with fields for the client's name and the connection
-type Client struct {
-	Name       string
-	Connection net.Conn
+type client struct {
+	name string
+	conn net.Conn
+	out  chan string
+	done chan struct{}
 }
 
-func StartTCPServer(port int) {
+type server struct {
+	mu      sync.Mutex
+	clients map[*client]struct{}
+	history []string
+}
+
+func StartTCPServer(port int) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		fmt.Printf("Error: Can't start the server on port %d: %v\n", port, err)
-		return
+		return fmt.Errorf("listen on port %d: %w", port, err)
 	}
 	defer listener.Close()
+	fmt.Printf("NetChat is listening on port %d\n", port)
+	s := &server{clients: make(map[*client]struct{})}
+	return s.serve(listener)
+}
 
-	fmt.Printf("Server is running at port: %d\n", port)
-
+func (s *server) serve(listener net.Listener) error {
+	// Reserve a slot before starting a handler, including unnamed connections.
+	slots := make(chan struct{}, maxConnections)
 	for {
-		connection, err := listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Printf("Error: Unable to accept the new connection: %v\n", err)
-			continue
+			return fmt.Errorf("accept connection: %w", err)
 		}
-
-		mutex.Lock()
-		if len(clients) >= MAX_CONNECTIONS {
-			mutex.Unlock()
-			connection.Write([]byte("Sorry, but we have reached the maximum number of connections\n"))
-			connection.Close()
-			continue
-		}
-		mutex.Unlock()
-
-		client := &Client{
-			Connection: connection,
-		}
-
-		go HandleClient(client)
-	}
-}
-//HandleClient Function:
-//This function handles the client connection, including:
-//Printing a welcome message and prompting the client for a name.
-//Verifying that the chosen name is unique.
-//Notifying all other clients about the new client.
-//Sending the chat history to the new client.
-//Handling the client's messages, adding them to the chat history, and broadcasting them to all other clients.
-//Removing the client from the list of connected clients when the connection is closed.
-
-
-func HandleClient(client *Client) {
-	defer client.Connection.Close()
-
-	// Print welcome message and prompt for name
-	PrintLinuxLogo(client.Connection)
-
-	// Read client's name
-	// Loop until a unique name is provided
-	for {
-		client.Connection.Write([]byte("[Enter your name]: "))
-		reader := bufio.NewReader(client.Connection)
-		name, err := reader.ReadString('\n')
-		if err != nil || strings.TrimSpace(name) == "" {
-			client.Connection.Write([]byte(fmt.Sprintf("Error: invalid client name: %v \n", err)))
-			continue
-		}
-		name = strings.TrimSpace(name)
-
-		mutex.Lock()
-		if verifyName(name) {
-			client.Name = strings.TrimSpace(name)
-			mutex.Unlock()
-			break
-		} else {
-			mutex.Unlock()
-			client.Connection.Write([]byte("Name already taken. Please choose a different name.\n"))
-		}
-	}
-	// Notify all clients that a new client has joined
-	mutex.Lock()
-	for _, c := range clients {
-		if c != client {
-			c.Connection.Write([]byte(fmt.Sprintf("\n%s has joined the chat...\n", client.Name)))
-		} else {
-			c.Connection.Write([]byte(fmt.Sprintf("%s has joined the chat...\n", client.Name)))
-		}
-
-		c.Connection.Write([]byte("[" + time.Now().Format("2006-01-02 15:04:05") + "][" + c.Name + "]: "))
-	}
-	clients = append(clients, client)
-	mutex.Unlock()
-
-	SendChatHistory(client)
-
-	client.Connection.Write([]byte("[" + time.Now().Format("2006-01-02 15:04:05") + "][" + client.Name + "]: "))
-	scanner := bufio.NewScanner(client.Connection)
-	for scanner.Scan() {
-		message := scanner.Text()
-
-		if strings.TrimSpace(message) == "" {
-			client.Connection.Write([]byte("[" + time.Now().Format("2006-01-02 15:04:05") + "][" + client.Name + "]: "))
-			continue 
-		}
-
-		messageToSend := fmt.Sprintf("[%s][%s]: %s\n", time.Now().Format("2006-01-02 15:04:05"), client.Name, message)
-
-		mutex.Lock()
-		chatHistory = append(chatHistory, messageToSend)
-		for _, c := range clients {
-			if c != client {
-				c.Connection.Write([]byte("\n" + messageToSend))
+		select {
+		case slots <- struct{}{}:
+			go func() {
+				defer func() { <-slots }()
+				s.handle(conn)
+			}()
+		default:
+			// A small rejection response has a deadline and allocates no handler.
+			if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err == nil {
+				if _, err := io.WriteString(conn, "Sorry, but we have reached the maximum number of connections\n"); err != nil {
+					log.Printf("reject connection: %v", err)
+				}
 			}
-			c.Connection.Write([]byte("[" + time.Now().Format("2006-01-02 15:04:05") + "][" + c.Name + "]: "))
+			conn.Close()
 		}
-		mutex.Unlock()
-	}
-
-	mutex.Lock()
-	for i, c := range clients {
-		if c == client {
-			clients = append(clients[:i], clients[i+1:]...)
-			break
-		}
-	}
-	for _, c := range clients {
-		if c != client {
-			c.Connection.Write([]byte(fmt.Sprintf("\n%s has left the chat...\n", client.Name)))
-		} else {
-			c.Connection.Write([]byte(fmt.Sprintf("%s has left the chat...\n", client.Name)))
-		}
-
-		c.Connection.Write([]byte("[" + time.Now().Format("2006-01-02 15:04:05") + "][" + c.Name + "]: "))
-	}
-	mutex.Unlock()
-}
-
-//sends the chat history to a specific client
-func SendChatHistory(client *Client) {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	for _, message := range chatHistory {
-		client.Connection.Write([]byte(message))
 	}
 }
 
-//function checks if the given name is unique among the connected clients.
-func verifyName(name string) bool {
-	for _, client := range clients {
-		if client.Name == name {
+func (c *client) enqueue(message string) {
+	select {
+	case c.out <- message:
+	default:
+		// Disconnect a client that cannot keep up without blocking the chat.
+		c.conn.Close()
+	}
+}
+
+func (c *client) writeLoop() {
+	for {
+		select {
+		case <-c.done:
+			return
+		case message := <-c.out:
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+				c.conn.Close()
+				return
+			}
+			if _, err := io.WriteString(c.conn, message); err != nil {
+				log.Printf("write to %s: %v", c.conn.RemoteAddr(), err)
+				c.conn.Close()
+				return
+			}
+		}
+	}
+}
+
+func (s *server) handle(conn net.Conn) {
+	c := &client{conn: conn, out: make(chan string, queueSize), done: make(chan struct{})}
+	defer func() {
+		s.leave(c)
+		close(c.done)
+		conn.Close()
+	}()
+	go c.writeLoop()
+	if err := conn.SetReadDeadline(time.Now().Add(nameTimeout)); err != nil {
+		return
+	}
+	c.enqueue(welcomeBanner + "[Enter your name]: ")
+	// Reuse the scanner for names and messages so buffered input is preserved.
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 1024), maxLineBytes+2)
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if !validName(name) {
+			c.enqueue("Name must be 1-64 bytes with no control characters or []:.\n[Enter your name]: ")
+			continue
+		}
+		if !s.join(c, name) {
+			c.enqueue("Name already taken. Please choose a different name.\n[Enter your name]: ")
+			continue
+		}
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			return
+		}
+		for scanner.Scan() {
+			message := scanner.Text()
+			if len(message) > maxLineBytes {
+				log.Printf("oversized message from %s", conn.RemoteAddr())
+				return
+			}
+			if strings.TrimSpace(message) == "" {
+				// Serialize prompts with broadcasts using the same state lock.
+				s.mu.Lock()
+				c.enqueue(prompt(c.name))
+				s.mu.Unlock()
+				continue
+			}
+			s.broadcast(c, message)
+		}
+		break
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("read from %s: %v", conn.RemoteAddr(), err)
+	}
+}
+
+func (s *server) join(c *client, name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for existing := range s.clients {
+		if existing.name == name {
 			return false
 		}
 	}
+	// Name reservation, history replay and registration form one atomic action.
+	c.name = name
+	c.enqueue(strings.Join(s.history, "") + prompt(name))
+	for existing := range s.clients {
+		existing.enqueue(fmt.Sprintf("\n%s has joined the chat...\n", name) + prompt(existing.name))
+	}
+	s.clients[c] = struct{}{}
 	return true
+}
+
+func (s *server) broadcast(sender *client, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	formatted := fmt.Sprintf("[%s][%s]: %s\n", timestamp(), sender.name, message)
+	s.history = append(s.history, formatted)
+	for c := range s.clients {
+		output := prompt(c.name)
+		if c != sender {
+			output = "\n" + formatted + output
+		}
+		c.enqueue(output)
+	}
+}
+
+func (s *server) leave(c *client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, joined := s.clients[c]; !joined {
+		return
+	}
+	delete(s.clients, c)
+	for remaining := range s.clients {
+		remaining.enqueue(fmt.Sprintf("\n%s has left the chat...\n", c.name) + prompt(remaining.name))
+	}
+}
+
+func timestamp() string {
+	return time.Now().Format("2006-01-02 15:04:05")
 }

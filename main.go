@@ -1,27 +1,26 @@
 package main
- import (
-"fmt"
-"os"
- )
- func main(){
-	switch len(os.Args){
-	case 1:
-		StartTCPServer(8989)
 
-	case 2:
-		port := Atoi(os.Args[1])
-		if  port == 0 {
-			fmt.Printf("Error: The port must contain numbers only")
-			os.Exit(0)
-		}
+import (
+	"fmt"
+	"os"
+)
 
-		if CheckPort(port) {
-			StartTCPServer(port)
+func main() {
+	port := 8989
+	if len(os.Args) > 2 {
+		fmt.Fprintln(os.Stderr, "[USAGE]: netchat [port]")
+		os.Exit(1)
+	}
+	if len(os.Args) == 2 {
+		var err error
+		port, err = parsePort(os.Args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			os.Exit(1)
 		}
-		
-	default:
-		fmt.Println("[USAGE]: ./TCPChat $port  ")
-		os.Exit(0)
+	}
+	if err := StartTCPServer(port); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
 	}
 }
- 
