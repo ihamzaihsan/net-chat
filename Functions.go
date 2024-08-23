@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -37,10 +36,6 @@ func validName(name string) bool {
 		}
 	}
 	return true
-}
-
-func prompt(name string) string {
-	return fmt.Sprintf("[%s][%s]: ", timestamp(), name)
 }
 
 // Keeping the banner in the binary makes it independent of the working directory.

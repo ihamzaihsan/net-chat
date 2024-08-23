@@ -132,10 +132,6 @@ func (s *server) handle(conn net.Conn) {
 				return
 			}
 			if strings.TrimSpace(message) == "" {
-				// Serialize prompts with broadcasts using the same state lock.
-				s.mu.Lock()
-				c.enqueue(prompt(c.name))
-				s.mu.Unlock()
 				continue
 			}
 			s.broadcast(c, message)
@@ -157,9 +153,9 @@ func (s *server) join(c *client, name string) bool {
 	}
 	// Name reservation, history replay and registration form one atomic action.
 	c.name = name
-	c.enqueue(strings.Join(s.history, "") + prompt(name))
+	c.enqueue(strings.Join(s.history, "") + fmt.Sprintf("Connected as %s. Type a message and press Enter.\n", name))
 	for existing := range s.clients {
-		existing.enqueue(fmt.Sprintf("\n%s has joined the chat...\n", name) + prompt(existing.name))
+		existing.enqueue(fmt.Sprintf("%s has joined the chat...\n", name))
 	}
 	s.clients[c] = struct{}{}
 	return true
@@ -171,11 +167,7 @@ func (s *server) broadcast(sender *client, message string) {
 	formatted := fmt.Sprintf("[%s][%s]: %s\n", timestamp(), sender.name, message)
 	s.history = append(s.history, formatted)
 	for c := range s.clients {
-		output := prompt(c.name)
-		if c != sender {
-			output = "\n" + formatted + output
-		}
-		c.enqueue(output)
+		c.enqueue(formatted)
 	}
 }
 
@@ -187,7 +179,7 @@ func (s *server) leave(c *client) {
 	}
 	delete(s.clients, c)
 	for remaining := range s.clients {
-		remaining.enqueue(fmt.Sprintf("\n%s has left the chat...\n", c.name) + prompt(remaining.name))
+		remaining.enqueue(fmt.Sprintf("%s has left the chat...\n", c.name))
 	}
 }
 
