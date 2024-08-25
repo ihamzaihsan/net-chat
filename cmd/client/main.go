@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -20,7 +22,11 @@ const (
 func main() {
 	address, err := parseAddress(os.Args[1:])
 	if err == nil {
-		err = run(address, os.Stdin, os.Stdout)
+		if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
+			err = runInteractive(address, os.Stdin, os.Stdout)
+		} else {
+			err = run(address, os.Stdin, os.Stdout)
+		}
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
