@@ -5,6 +5,27 @@ Exchange timestamped messages using the included client with no extra installs.
 The project grew from a Netcat-inspired networking assignment and also remains
 compatible with external line-oriented TCP clients.
 
+## Screenshot
+
+![Hamza's NetChat client terminal displaying a live group conversation](docs/netchat-screenshot.png)
+
+Hamza's client terminal displaying timestamped messages from a three-person group chat.
+
+## Quick start with the built-in Go client
+
+You only need Go. Open three terminals in the `net-chat` repository directory
+and run one command in each terminal:
+
+| Terminal | Command | What to do next |
+| --- | --- | --- |
+| 1 — Server | `go run .` | Leave it running on port 8989. |
+| 2 — First client | `go run ./cmd/client` | Enter `Alice`, then type messages. |
+| 3 — Second client | `go run ./cmd/client` | Enter `Bob`, then type messages. |
+
+Enter each name within 30 seconds. Press Enter to send a message and Ctrl+C to
+close a client. If the server is already running on port 8989, start only the
+clients. For custom ports and standalone binaries, see [Setup and usage](#setup-and-usage).
+
 ## Features
 
 - Up to 10 simultaneous connections, including users entering their names.
@@ -20,8 +41,11 @@ compatible with external line-oriented TCP clients.
 
 ## Setup and usage
 
-Requires Go 1.22.2 or later. Both server and client use only the Go standard
-library. Ncat, Netcat, and Telnet are not required.
+Requires Go 1.22.2 or later. Ncat, Netcat, and Telnet are not required.
+The server uses the Go standard library. The client uses Go's
+[`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term) package for terminal
+editing, with `golang.org/x/sys` as an indirect dependency. Go downloads these
+automatically on the first client run or build.
 
 If you already have this repository open in a terminal, skip cloning it.
 
@@ -50,8 +74,13 @@ go run ./cmd/client
 Enter `Alice` at the name prompt within 30 seconds.
 
 **Terminal 3: connect the second client.** Open another terminal in the repository
-directory and run the same client command, then enter `Bob`. Send messages from
-either client terminal.
+directory and run:
+
+```sh
+go run ./cmd/client
+```
+
+Enter `Bob` when prompted. Send messages from either client terminal.
 The server terminal displays startup and error diagnostics, not the chat interface.
 
 If the connection is refused, check that the server is still running and the
@@ -107,12 +136,14 @@ when Alice sends `Hello!`, Bob sees:
 
 ```text
 [2026-10-04 14:30:00][Alice]: Hello!
-[2026-10-04 14:30:00][Bob]:
 ```
 
-Timestamps use the server's local time. The server sends each message to the
-other clients and refreshes the sender's prompt; interactive terminal echo
-displays the sender's typed text. Close the client connection to leave and use
+Timestamps use the server's local time when a message is received. The server
+sends the same timestamped message to every client, including its sender. It
+does not print timestamped input prompts or empty name entries between messages.
+In supported interactive terminals, you see text while typing, then Enter
+clears that input so only the server's confirmed timestamped message remains.
+Incoming messages preserve your unfinished input. Close the client connection to leave and use
 Ctrl+C in the server terminal to stop the server. Use Ctrl+C in a client terminal
 to leave the chat. The client also sends a final input line on stdin EOF and
 closes its TCP write side before waiting for the server's remaining output.
@@ -131,9 +162,14 @@ same lock. Socket writes run in client writers rather than under the shared lock
 The companion client lives in `cmd/client/main.go`. It connects with a 5-second
 timeout, sends complete input lines with a 5-second write deadline, and copies
 incoming bytes directly to stdout so prompts without line endings appear promptly.
-Keyboard input and receiving run concurrently. The terminal provides local echo;
-incoming messages can interrupt a line being typed. This is a plain terminal
-interface without cursor management or automatic reconnection.
+Keyboard input and receiving run concurrently. Interactive terminals use raw
+input and a synchronized line editor with Backspace, arrow-key editing, and
+wrapped-line handling. Enter clears the edited text without leaving an extra
+line in the transcript. Ctrl+C or Ctrl+D on empty input exits; normal terminal
+settings are restored on return. Resize detection updates the editor's dimensions.
+Redirected input/output uses the plain streaming client without ANSI controls.
+There is no automatic reconnection. Terminals that are not detected as interactive
+use the plain mode and may still locally echo input.
 
 - Names are trimmed, limited to 64 bytes, and cannot contain ASCII control
   characters or `[]:`. Name entry has a 30-second deadline, including retries.
@@ -150,7 +186,7 @@ interface without cursor management or automatic reconnection.
 ## Verification
 
 ```sh
-gofmt -l main.go Server.go Functions.go cmd/client/main.go
+gofmt -l main.go Server.go Functions.go cmd/client/main.go cmd/client/terminal.go
 go vet ./...
 go test ./...
 go build ./...
@@ -171,8 +207,13 @@ The included client also passed three temporary tests with race detection:
 address validation, final input/reply handling on EOF, and server disconnection
 while keyboard input is idle. Local subprocess checks covered three simultaneous
 clients, duplicate-name retries, bidirectional messages, history replay, input
-size limits, stdin EOF, server shutdown, and connection errors. Multi-computer
-operation and interactive terminal rendering were not verified.
+size limits, stdin EOF, server shutdown, and connection errors.
+
+Terminal-editor regression checks passed with race detection for clearing short,
+wrapped, and Unicode input; preserving drafts during incoming messages; CRLF
+handling; name prompts; and plain piped input. Windows pseudo-terminal checks
+also covered submission, wrapped lines, incoming messages during typing, and
+Ctrl+C exit. Multi-computer operation and other operating systems were not tested.
 
 ## Authors
 
